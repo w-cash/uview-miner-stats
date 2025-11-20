@@ -320,6 +320,18 @@ fn compute_statistics(
     cache: &BlockCache,
     tip_height: u32,
 ) -> Result<MinerStatsReport> {
+    let heights: Vec<u32> = (cfg.start_height..=tip_height).collect();
+    let total_blocks = heights.len() as u32;
+    let coinbase_totals: HashMap<u32, i64> = heights
+        .iter()
+        .filter_map(|h| {
+            cache.blocks.get(h).map(|block| {
+                let sum: i64 = block.outputs.iter().map(|o| o.value_zat).sum();
+                (*h, sum)
+            })
+        })
+        .collect();
+
     let mut per_miner = Vec::new();
     let mut matched_blocks = BTreeSet::new();
     let mut block_totals: HashMap<u32, i64> = HashMap::new();
@@ -330,7 +342,7 @@ fn compute_statistics(
         let mut blocks = 0u32;
         let mut total_value = 0i64;
         let mut details = Vec::new();
-        for height in cfg.start_height..=tip_height {
+        for &height in &heights {
             let block = match cache.blocks.get(&height) {
                 Some(block) => block,
                 None => continue,
@@ -374,18 +386,28 @@ fn compute_statistics(
         });
     }
 
-    let total_value: i64 = block_totals.values().sum();
-    let total_value_wec = zats_to_wec(total_value);
-    let total_blocks = (cfg.start_height..=tip_height).count() as u32;
     for miner in &mut per_miner {
         miner.share_percent = percent_share_blocks(miner.matched_blocks, total_blocks);
     }
+
+    let matched_value_zat: i64 = block_totals.values().sum();
+    let unmatched_blocks = total_blocks.saturating_sub(matched_blocks.len() as u32);
+    let unmatched_value_zat: i64 = coinbase_totals
+        .iter()
+        .filter(|(height, _)| !matched_blocks.contains(height))
+        .map(|(_, value)| *value)
+        .sum();
+    let unmatched_value_wec = zats_to_wec(unmatched_value_zat);
+    let unmatched_share = percent_share_blocks(unmatched_blocks, total_blocks);
+
+    let total_value_zat = matched_value_zat + unmatched_value_zat;
+    let total_value_wec = zats_to_wec(total_value_zat);
 
     Ok(MinerStatsReport {
         start_height: cfg.start_height,
         end_height: tip_height,
         total_mined_blocks: matched_blocks.len() as u32,
-        total_value_zat: total_value,
+        total_value_zat,
         total_value_wec,
         miners: per_miner
             .iter()
@@ -398,6 +420,12 @@ fn compute_statistics(
             })
             .collect(),
         detailed_miners: per_miner,
+        unmatched: UnmatchedSummary {
+            blocks: unmatched_blocks,
+            total_value_zat: unmatched_value_zat,
+            total_value_wec: unmatched_value_wec,
+            share_percent: unmatched_share,
+        },
     })
 }
 
@@ -436,6 +464,16 @@ struct MinerStatsReport {
     total_value_wec: f64,
     miners: Vec<MinerAggregate>,
     detailed_miners: Vec<MinerSummary>,
+    #[serde(skip_serializing)]
+    unmatched: UnmatchedSummary,
+}
+
+#[derive(Serialize)]
+struct UnmatchedSummary {
+    blocks: u32,
+    total_value_zat: i64,
+    total_value_wec: f64,
+    share_percent: f64,
 }
 
 impl MinerStatsReport {
@@ -484,5 +522,13 @@ fn print_table(report: &MinerStatsReport) {
             miner.label, miner.matched_blocks, miner.total_value_wec, miner.share_percent
         );
     }
+    println!("| {:_<20} | {:_<10} | {:_<10} | {:_<10} |", "", "", "", "");
+    println!(
+        "| {:<20} | {:>10} | {:>10.2} | {:>9.2}% |",
+        "Others",
+        report.unmatched.blocks,
+        report.unmatched.total_value_wec,
+        report.unmatched.share_percent
+    );
     println!("+----------------------+------------+------------+------------+");
 }
