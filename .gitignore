@@ -1,0 +1,7 @@
+
+target/
+
+# Local configuration and generated data
+config.toml
+stats-cache.json
+miner-stats.json

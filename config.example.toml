@@ -1,0 +1,20 @@
+# Height to begin scanning (inclusive)
+start_height = 0
+
+# Network to derive addresses for: "mainnet" or "testnet"
+chain = "mainnet"
+
+# Full node RPC endpoint (must expose getblockcount/hash/block)
+rpc_url = "http://127.0.0.1:2323"
+
+# Unified viewing keys with human-readable labels
+ufvks = [
+    { key = "uview1example...", label = "Miner #1" },
+    { key = "uview1another...", label = "Miner #2" },
+]
+
+# JSON file used to cache fetched block data between runs
+cache_file = "stats-cache.json"
+
+# Output report path (JSON)
+output_file = "miner-stats.json"
